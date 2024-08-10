@@ -58,9 +58,9 @@ perform the following steps:
 
 12. Generate report and verify eliminated totals.
 
-ES NECESARIO REALIZAR UN BACKUP PREVIO A LA EJECUCIÓN DE
-`suitecrm-prune` YA QUE ES UNA HERRAMIENTA EN DESARROLLO Y PODRÍA
-ELIMINAR MÁS REGISTROS DE LOS ESPERADOS!
+IT IS NECESSARY TO PERFORM A BACKUP PRIOR TO THE EXECUTION OF
+`suitecrm-prune` AS IT IS A TOOL UNDER DEVELOPMENT AND COULD
+DELETE MORE RECORDS THAN EXPECTED!
 
 It is possible to define a regular expression of tables to be deleted in
 the `REGEX_TABLES_EXCLUDE` variable.
