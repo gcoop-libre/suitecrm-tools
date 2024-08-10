@@ -65,7 +65,7 @@ ELIMINAR MÁS REGISTROS DE LOS ESPERADOS!
 It is possible to define a regular expression of tables to be deleted in
 the `REGEX_TABLES_EXCLUDE` variable.
 
-## SUMMARY PRUNE DATABASE `suitecrm` ON `localhost` AT 2024-08-08 13:24:30 PID 1778628
+## SUMMARY PRUNE DATABASE `suitecrm` ON `localhost` AT 2024-08-09 13:24:30 PID 1778628
 
 ```
 
