@@ -1,0 +1,1291 @@
+#!/bin/bash
+
+# This script comes with ABSOLUTELY NO WARRANTY, use at own risk
+# Copyright (C) 2024 Osiris Alejandro Gomez <osiux@osiux.com>
+# Copyright (C) 2024 Osiris Alejandro Gomez <osiris@gcoop.coop>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+# shellcheck disable=SC1090
+# shellcheck disable=SC2086
+# shellcheck disable=SC2010
+# shellcheck disable=SC2001
+
+function stderror()
+{
+  echo >&2 "$1"
+}
+
+function die()
+{
+  log "$1"
+  stderror "$1"
+  exit 1
+}
+
+function tot()
+{
+  local FILE
+
+  log "TOTAL $1 $3 RECORDS IN $2"
+  FILE="$TMP_PREFIX-$1.tot"
+
+  # ENSURE EXISTS ONLY ONE RESULT BY TABLE
+  grep -qE "^$1 " "$FILE" && return
+
+  printf "%s %s\\n" "$2" "$3" >> "$TMP_PREFIX-$1.tot"
+}
+
+function sum_max()
+{
+
+  MXN="$(wc -L "$ALL_TABLES")"
+  MXN="${MXN%% *}"
+
+  MXT="$(awk '{print $2}' "$TMP_PREFIX"-*.tot | wc -L)"
+  MXT="${MXT%% *}"
+
+  MXH="$(echo "$PRUNE_STATES" | tr ' ' '\n' | wc -L)"
+  [[ "$MXT" -lt "$MXH" ]] && MXT="$MXH"
+
+}
+
+function sum_tit()
+{
+  local MXN MXT
+
+  MXN="$1"
+  MXT="$2"
+
+  printf "| %-*s |" "$MXN" 'table'
+  for TYP in "${STATES[@]}" CHECK
+  do
+    KEY="$(echo "$TYP" | sed 's/_PRUNE//g; s/PRUNE_//g')"
+    printf " %*s |" "${#KEY}" "$KEY"
+  done
+  printf "\n"
+}
+
+function sum_div()
+{
+  sum_tit "$MXN" "$MXT" | sed 's/[^|]/-/g'
+}
+
+function get_table_total()
+{
+  local FILE STATE TABLE TOTAL
+
+  TABLE="$1"
+  STATE="$2"
+  FILE="$TMP_PREFIX-$STATE.tot"
+  TOTAL="$(grep -Em1 "^$TABLE " "$FILE" 2>/dev/null | cut -d ' ' -f2)"
+
+  [[ -z "$TOTAL" ]] && TOTAL=0
+
+  printf '%s' "$TOTAL"
+}
+
+function sum_tbl()
+{
+  local MXN MXT TBL TOT TYP
+
+  [[ "$SHOW_SUMMARY" -eq 0 ]] && return
+
+  printf "\\n\\n## SUMMARY PRUNE DATABASE \`%s\` ON \`%s\` AT %s PID $$\\n\\n" \
+    "$DB_NAME" "$DB_HOST" "$(date +'%F %T')"
+
+  printf '```\n'
+  for KEY in BEFORE_DATE RUN_AUDIT RUN_CSTM RUN_DATE RUN_DELETED RUN_ORPHAN TABLES_LIKE
+  do
+    VAL="${!KEY}"
+    printf "%s=%s\\n" "$KEY" "$VAL"
+  done
+  printf '```\n\n'
+
+  sum_max
+  sum_tit "$MXN" "$MXT"
+  sum_div
+
+  while read -r TBL
+  do
+
+    printf "| %-*s |" "$MXN" "$TBL"
+
+    for TYP in "${STATES[@]}"
+    do
+      TOT="$(get_table_total "$TBL" "$TYP")"
+      KEY="$(echo "$TYP" | sed 's/_PRUNE//g; s/PRUNE_//g')"
+      printf " %*s |" "${#KEY}" "$TOT"
+    done
+
+    TOT_TBL_CHECK='OK'
+    TOT_TBL_BEFORE="$(get_table_total "$TBL" BEFORE_PRUNE)"
+    TOT_TBL_AFTER="$(get_table_total  "$TBL" AFTER_PRUNE)"
+    TOT_TBL_PRUNE="$(get_table_total  "$TBL" PRUNE_TOTAL)"
+
+    [[ "$TOT_TBL_PRUNE" -gt "$TOT_TBL_BEFORE" ]] && TOT_TBL_CHECK='ER'
+
+    TOT_TBL_DIFF="$((TOT_TBL_BEFORE - TOT_TBL_PRUNE))"
+    [[ "$TOT_TBL_DIFF"   -ne "$TOT_TBL_AFTER" ]] && TOT_TBL_CHECK='ER'
+    [[ "$TOT_TBL_BEFORE" -eq "$TOT_TBL_AFTER" ]] && TOT_TBL_CHECK='NO'
+    [[ "$TOT_TBL_BEFORE" -eq 0                ]] && TOT_TBL_CHECK='EM'
+
+    if [[ "$TBL" =~ $REGEX_TABLES_EXCLUDE     ]]
+    then
+      TOT_TBL_CHECK='EX'
+      if [[ "$TOT_TBL_AFTER" -lt "$TOT_TBL_BEFORE" ]]
+      then
+        TOT_TBL_CHECK='ER'
+      fi
+    fi
+
+    KEY='CHECK'
+    printf " %*s |" "${#KEY}" "$TOT_TBL_CHECK"
+    printf "\n"
+
+    TOTAL_CHECK[$TOT_TBL_CHECK]="$((TOTAL_CHECK[$TOT_TBL_CHECK]+1))"
+
+  done < "$ALL_TABLES"
+  printf '\n'
+
+}
+
+function sum_hdr()
+{
+  printf "| %*s | %*s |\\n" \
+         "$TOTAL_WIDTH"     \
+         'TABLES'           \
+         "$TOTAL_WIDTH"     \
+         'TOTAL'
+}
+
+function sum_tot()
+{
+  CHECK_WIDTH="$(echo "${TOTAL_CHECK[@]}" | tr ' ' '\n' | wc -L)"
+  NAMES_WIDTH="$(echo "${TOTAL_NAMES[@]}" | tr ' ' '\n' | wc -L)"
+  TOTAL_WIDTH="$CHECK_WIDTH"
+  [[ "$NAMES_WIDTH" -gt "$CHECK_WIDTH" ]] && TOTAL_WIDTH="$NAMES_WIDTH"
+
+  sum_hdr
+  sum_hdr | sed 's/[^|]/-/g'
+
+  for TOTAL_KEY in "${!TOTAL_CHECK[@]}"
+  do
+
+    printf "| %*s | %*s |\\n"           \
+           "$TOTAL_WIDTH"               \
+           "${TOTAL_NAMES[$TOTAL_KEY]}" \
+           "$TOTAL_WIDTH"               \
+           "${TOTAL_CHECK[$TOTAL_KEY]}"
+
+  done
+}
+
+function sum_end()
+{
+  read -ra CHECK_TEMP <<< "${TOTAL_CHECK[@]}"
+  CHECK_TABLES="$(IFS=+; echo "$((${CHECK_TEMP[*]}))")"
+  printf "| %*s | %*s |\\n" \
+         "$TOTAL_WIDTH"               \
+         'TOTAL'                      \
+         "$TOTAL_WIDTH"               \
+         "$CHECK_TABLES"
+}
+
+function log()
+{
+  local TIMESTAMP MSG
+
+  [[ "$1" = "$LAST_LOG" ]] && return
+
+  TIMESTAMP="$(date +'%F %T')"
+
+  printf -v MSG "%s %s %s[%s]: %s %s" \
+                "$TIMESTAMP"          \
+                "$HOSTNAME"           \
+                "$BIN"                \
+                "$$"                  \
+                "$DB_NAME"            \
+                "$1"
+
+  echo "$MSG" >> "$LOG"
+
+  [[ "$SHOW_LOG" -eq 1 ]] && stderror "$MSG"
+
+  LAST_LOG="$1"
+}
+
+function dbg()
+{
+  local DBG
+
+  [[ "$DEBUG_SQL" -eq 0 ]] && return
+  DBG="$(echo "${!1}" | tr '\n' ' ' | sed 's/ \+/ /g')"
+  log "DEBUG $1 $DBG"
+}
+
+function cmd_clean()
+{
+  echo "$1" \
+    | sed 's/ \-p[A-Za-z0-9]\+ \-\-skip/-p ******** --skip/g' \
+    | sed 's/ \-p[A-Za-z0-9]\+ \-\-compact/-p ******** --compact/g'
+}
+
+function file2oneline()
+{
+  tr '\n' ' ' < "$1"
+}
+
+function sql_clean()
+{
+  echo "$1" | tr '\n' ' ' | sed 's/ \+/ /g' | tr '"' "'"
+}
+
+function sql()
+{
+  local SQL TBL ERR
+
+  SQL="$(sql_clean "$1")"
+  dbg "${!SQL@}"
+
+  if [[ "$SQL" =~ ^DELETE\ FROM.* ]]
+  then
+    TBL="${SQL//DELETE FROM /}"
+    TBL="${TBL%% *}"
+    if [[ "$TBL" =~ $REGEX_TABLES_EXCLUDE ]]
+    then
+      log "EXCLUDE $TBL TABLE SQL $SQL"
+      return
+    fi
+  fi
+
+  ERR="$TMP_PREFIX-mysql.error"
+
+  CMD="mysql -D $DB_NAME"
+  CMD+=" --host $DB_HOST"
+  CMD+=" --port $DB_PORT"
+  CMD+=" --user $DB_USER"
+  CMD+="  -p$DB_PASS"
+  CMD+=" --skip-column-names"
+  CMD+=" <<< \"$SQL\" 2>$ERR || exit 1"
+
+  bash -c "${CMD//\'\'/\'}" \
+    || die "ERROR $(file2oneline "$ERR") $(cmd_clean "$CMD")"
+}
+
+function table_exists()
+{
+  local SQL TABLE
+
+  TABLE="$1"
+
+SQL=$(cat << EOF
+SELECT  1
+FROM    information_schema.TABLES
+WHERE   TABLE_SCHEMA = "$DB_NAME"
+AND     TABLE_NAME = "$TABLE";
+EOF
+)
+
+  EXISTS="$(sql "$SQL")"
+
+  [[ "$EXISTS" -eq 1 ]] || return 1
+}
+
+function column_exists()
+{
+  local COLUMN_NAME SQL TABLE
+
+  TABLE="$1"
+  COLUMN_NAME="$2"
+
+SQL=$(cat << EOF
+SELECT  1
+FROM    information_schema.COLUMNS
+WHERE   TABLE_SCHEMA = "$DB_NAME"
+AND     TABLE_NAME = "$TABLE"
+AND     COLUMN_NAME = "$COLUMN_NAME";
+EOF
+)
+
+  EXISTS="$(sql "$SQL")"
+
+  [[ "$EXISTS" -eq 1 ]] || return 1
+}
+
+function dump_table_where()
+{
+  local TABLE WHERE CMD
+
+  TABLE="$1"
+  WHERE="$2"
+
+  if [[ "$RUN_DUMP" -eq 0 ]]
+  then
+    echo "FIXME ABORT DUMP" > "$OUTFILE"
+    log "ABORT DUMP $TABLE $WHERE"
+    return
+  fi
+
+  CMD="mysqldump $DB_NAME"
+  CMD+=" --host $DB_HOST"
+  CMD+=" --port $DB_PORT"
+  CMD+=" --user $DB_USER"
+  CMD+="  -p$DB_PASS"
+  CMD+=" --compact"
+  CMD+=" --no-create-db"
+  CMD+=" --no-create-info"
+  CMD+=" --lock-all-tables"
+  CMD+=" --tables $TABLE"
+  CMD+=" --where \"$WHERE\" >$OUTFILE 2>$ERRORS || exit 1"
+
+  log "DUMP $(cmd_clean "$CMD")"
+  bash -c "$CMD" || die "ERROR $(file2oneline "$ERRORS")"
+
+  TOTAL_DUMP="$(grep -cv 'INSERT INTO' "$OUTFILE")"
+  log "BACKUP $TOTAL_DUMP RECORDS FROM $TABLE INTO $OUTFILE"
+
+}
+
+function dump_date()
+{
+  local TABLE TIME WHERE
+
+  TABLE="$1"
+  TIME="$(date +'%s')"
+  WHERE="$DATE_COLUMN < DATE('$BEFORE_DATE');"
+
+  OUTFILE="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-date-$BEFORE_DATE.sql"
+   ERRORS="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-date-$BEFORE_DATE.error"
+
+  dump_table_where "$TABLE" "$WHERE"
+}
+
+function dump_audit()
+{
+  local TABLE TIME WHERE
+
+  TABLE="${1//$AUDIT_SUFFIX/}"
+  AUDIT="${TABLE}${AUDIT_SUFFIX}"
+  TIME="$(date +'%s')"
+  WHERE="parent_id IN (SELECT id FROM $TABLE);"
+
+  OUTFILE="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-audit.sql"
+   ERRORS="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-audit.error"
+
+  dump_table_where "$AUDIT" "$WHERE"
+
+}
+
+function dump_cstm()
+{
+  local TABLE TIME WHERE
+
+  TABLE="${1//$CSTM_SUFFIX/}"
+  CSTM="${TABLE}${CSTM_SUFFIX}"
+  TIME="$(date +'%s')"
+  WHERE="id_c IN (SELECT id FROM $TABLE);"
+
+  OUTFILE="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-cstm.sql"
+   ERRORS="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-cstm.error"
+
+  dump_table_where "$CSTM" "$WHERE"
+}
+
+function dump_deleted()
+{
+  local TABLE TIME WHERE
+
+  TABLE="$1"
+  TIME="$(date +'%s')"
+  WHERE="deleted=1;"
+
+  OUTFILE="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-deleted.sql"
+   ERRORS="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-deleted.error"
+
+  dump_table_where "$TABLE" "$WHERE"
+
+}
+
+function dump_orphan()
+{
+  local COLUMN TABLE WHERE
+
+  TABLE="$1"
+  COLUMN="$2"
+  FOREING_TABLE="$3"
+  TIME="$(date +'%s')"
+
+  OUTFILE="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-$COLUMN-$FOREING_TABLE.sql"
+   ERRORS="$BAK_DIR/$DB_NAME-$$-$TIME-$TABLE-$COLUMN-$FOREING_TABLE.error"
+
+  WHERE="$COLUMN NOT IN (SELECT id FROM $FOREING_TABLE)"
+  WHERE+=" AND $COLUMN IS NOT NULL;"
+
+  dump_table_where "$TABLE" "$WHERE"
+
+}
+
+function get_cstm_tables()
+{
+  SQL="SHOW TABLES LIKE '%$CSTM_SUFFIX';"
+  sql "$SQL" | grep "${TABLES_LIKE//%/.*}" > "$CSTM_TABLES"
+
+  TOTAL_CSTM="$(wc -l "$CSTM_TABLES")"
+  TOTAL_CSTM="${TOTAL_CSTM%% *}"
+
+  log "FOUND $TOTAL_CSTM CSTM TABLES MATCH WITH '%$CSTM_SUFFIX' IN $CSTM_TABLES FILTERED BY '$TABLES_LIKE'"
+}
+
+function get_audit_tables()
+{
+  SQL="SHOW TABLES LIKE '%$AUDIT_SUFFIX';"
+  sql "$SQL" | grep "${TABLES_LIKE//%/.*}" > "$AUDIT_TABLES"
+
+  TOTAL_AUDIT="$(wc -l "$AUDIT_TABLES")"
+  TOTAL_AUDIT="${TOTAL_AUDIT%% *}"
+
+  log "FOUND $TOTAL_AUDIT AUDIT TABLES MATCH WITH '%$AUDIT_SUFFIX' IN $AUDIT_TABLES FILTERED BY '$TABLES_LIKE'"
+}
+
+function get_all_tables()
+{
+  cat "$AUDIT_TABLES" "$CSTM_TABLES"          >  "$ALL_TABLES"
+  awk '{printf "%s\n%s\n",$1,$3}' "$OWN_KEYS" >> "$ALL_TABLES"
+  sort -u -o "$ALL_TABLES" "$ALL_TABLES"
+
+  TOTAL_ALL="$(wc -l "$ALL_TABLES")"
+  TOTAL_ALL="${TOTAL_ALL%% *}"
+  log "FOUND $TOTAL_ALL TABLES IN $ALL_TABLES"
+}
+
+function get_relationships()
+{
+  local AUDIT_TOTAL CSTM_TOTAL MSG N OWN_TOTAL START
+
+  START="$(LC_ALL=c date +'%s')"
+  OWN_TOTAL="$(wc -l "$OWN_TABLES")"
+  OWN_TOTAL="${OWN_TOTAL%% *}"
+
+  N=0
+  MSG=''
+  while read -r TABLE _
+  do
+
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'OWN   FOREING TABLE %*s/%*s' \
+                    "${#OWN_TOTAL}" "$N" "${#OWN_TOTAL}" "$OWN_TOTAL"
+      bareta "$N" "$ALL_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    SQL="SELECT lhs_table, CASE WHEN lhs_key='id' THEN rhs_key ELSE lhs_key END AS f_key, rhs_table FROM relationships WHERE lhs_table='$TABLE' AND join_table IS NULL;"
+    sql "$SQL"
+
+    SQL="SELECT rhs_table, CASE WHEN rhs_key='id' THEN lhs_key ELSE rhs_key END AS f_key, lhs_table FROM relationships WHERE rhs_table='$TABLE' AND join_table IS NULL;"
+    sql "$SQL"
+
+    SQL="SELECT join_table, join_key_rhs, rhs_table FROM relationships WHERE join_table='$TABLE' AND join_table IS NOT NULL AND join_key_rhs IS NOT NULL AND rhs_table IS NOT NULL ORDER BY join_table, rhs_table, join_key_rhs;"
+    sql "$SQL"
+
+    SQL="SELECT join_table, join_key_lhs, lhs_table FROM relationships WHERE join_table='$TABLE' AND join_table IS NOT NULL AND join_key_lhs IS NOT NULL AND lhs_table IS NOT NULL ORDER BY join_table, lhs_table, join_key_lhs;"
+    sql "$SQL"
+
+  done < "$OWN_TABLES" | awk '!seen[$0]++' > "$OWN_KEYS"
+  printf '\n' 1>&2
+
+  START="$(LC_ALL=c date +'%s')"
+  AUDIT_TOTAL="$(wc -l "$AUDIT_TABLES")"
+  AUDIT_TOTAL="${AUDIT_TOTAL%% *}"
+
+  N=0
+  while read -r TABLE
+  do
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'AUDIT FOREING TABLE %*s/%*s' \
+                    "${#AUDIT_TOTAL}" "$N" "${#AUDIT_TOTAL}" "$AUDIT_TOTAL"
+      bareta "$N" "$AUDIT_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    printf "%s %s %s\\n" "$TABLE" parent_id "${TABLE//$AUDIT_SUFFIX/}"
+
+  done < "$AUDIT_TABLES" >> "$OWN_KEYS"
+  printf '\n' 1>&2
+
+  START="$(LC_ALL=c date +'%s')"
+  CSTM_TOTAL="$(wc -l "$CSTM_TABLES")"
+  CSTM_TOTAL="${CSTM_TOTAL%% *}"
+
+  N=0
+  while read -r TABLE
+  do
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'CSTM  FOREING TABLE %*s/%*s' \
+                    "${#CSTM_TOTAL}" "$N" "${#CSTM_TOTAL}" "$CSTM_TOTAL"
+      bareta "$N" "$CSTM_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    printf "%s %s %s\\n" "$TABLE" id_c "${TABLE//$CSTM_SUFFIX/}"
+
+  done < "$CSTM_TABLES" >> "$OWN_KEYS"
+  printf '\n' 1>&2
+
+  TOTAL_KEYS="$(wc -l "$OWN_KEYS")"
+  TOTAL_KEYS="${TOTAL_KEYS%% *}"
+
+  log "FOUND $TOTAL_KEYS KEYS MATCH WITH '$TABLES_LIKE' IN $OWN_KEYS"
+
+}
+
+function get_own_tables()
+{
+
+  SQL="SHOW TABLES LIKE '$TABLES_LIKE';"
+  sql "$SQL" | grep -vE "($CSTM_SUFFIX|$AUDIT_SUFFIX)" > "$OWN_TABLES"
+  TOTAL_OWN="$(wc -l "$OWN_TABLES")"
+  TOTAL_OWN="${TOTAL_OWN%% *}"
+
+  log "FOUND $TOTAL_OWN OWN TABLES MATCH WITH '$TABLES_LIKE' IN $OWN_TABLES"
+
+}
+
+function get_before_total()
+{
+  local ALL_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  ALL_TOTAL="$(wc -l "$ALL_TABLES")"
+  ALL_TOTAL="${ALL_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE _
+  do
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'COUNT BEFORE  TABLE %*s/%*s' \
+                    "${#ALL_TOTAL}" "$N" "${#ALL_TOTAL}" "$ALL_TOTAL"
+      bareta "$N" "$ALL_TOTAL" "$START" "$MSG" 1>&2
+    fi
+    sql_total "BEFORE PRUNE"
+    tot 'BEFORE_PRUNE' "$FROM_TABLE" "$TOTAL"
+  done < "$ALL_TABLES"
+  printf '\n' 1>&2
+}
+
+function get_after_total()
+{
+  local ALL_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  ALL_TOTAL="$(wc -l "$ALL_TABLES")"
+  ALL_TOTAL="${ALL_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE _
+  do
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'COUNT AFTER   TABLE %*s/%*s' \
+                    "${#ALL_TOTAL}" "$N" "${#ALL_TOTAL}" "$ALL_TOTAL"
+      bareta "$N" "$ALL_TOTAL" "$START" "$MSG" 1>&2
+    fi
+    sql_total "AFTER PRUNE"
+    tot 'AFTER_PRUNE' "$FROM_TABLE" "$TOTAL"
+  done < "$ALL_TABLES"
+  printf '\n' 1>&2
+}
+
+function get_total_states()
+{
+  local WORDS LINES
+
+  WORDS="$(get_prune_states)"
+  LINES="$(words2lines "$WORDS")"
+
+  echo "$LINES"                  \
+    | grep -vE '(BEFORE|AFTER|TOTAL)_PRUNE'
+}
+
+function sum_prune_files()
+{
+  local LINES REGEX
+
+  LINES="$(get_total_states)"
+  REGEX="$(lines2regex "$LINES")"
+
+  ls -1 "$TMP_PREFIX"-*.tot \
+    | grep -E "$REGEX"
+}
+
+function sum_prune_table()
+{
+  local TABLE
+  TABLE="$1"
+
+  grep -wEh "^$TABLE" $SUM_PRUNE_FILES 2>/dev/null \
+    | awk '{S+=$2} END {print S}'
+}
+
+function get_prune_total()
+{
+  local TABLE
+
+  [[ -n "$SUM_PRUNE_FILES" ]] || SUM_PRUNE_FILES="$(sum_prune_files)"
+
+  while read -r TABLE _
+  do
+    TOTAL_PRUNE="$(sum_prune_table "$TABLE")"
+    tot 'PRUNE_TOTAL' "$TABLE" "$TOTAL_PRUNE"
+  done < "$ALL_TABLES"
+
+  [[ "$TABLE" = 'gcoop_incidencias_audit' ]] && exit
+}
+
+function only_prune()
+{
+  local ONLY
+
+  ONLY="$1"
+
+  for OPTION in DATE DELETED ORPHAN AUDIT
+  do
+
+    VAR="RUN_${OPTION}"
+
+    if [[ "$OPTION" = "$ONLY" ]]
+    then
+      eval $VAR=1
+    else
+      eval $VAR=0
+    fi
+
+  done
+}
+
+function temporal()
+{
+  AUDIT_TABLES="$(mktemp)"
+  CSTM_TABLES="$(mktemp)"
+  ALL_TABLES="$(mktemp)"
+  OWN_AUDIT="$(mktemp)"
+  OWN_KEYS="$(mktemp)"
+  OWN_TABLES="$(mktemp)"
+
+  for TYP in "${STATES[@]}"
+  do
+    true > "$TMP_PREFIX-$TYP.tot"
+  done
+}
+
+function clean()
+{
+  rm -f "$AUDIT_TABLES"
+  rm -f "$CSTM_TABLES"
+  rm -f "$ALL_TABLES"
+  rm -f "$OWN_AUDIT"
+  rm -f "$OWN_KEYS"
+  rm -f "$OWN_TABLES"
+
+  for TYP in "${STATES[@]}"
+  do
+    rm -f "$TMP_PREFIX-$TYP.tot"
+  done
+}
+
+function lines2regex()
+{
+  echo "$1"                           \
+    | tr '\n' '|'                     \
+    | tr -d ' '                       \
+    | sed 's/^/(/g; s/|$//g; s/$/)/g;'
+}
+
+function lines2words()
+{
+  echo "$1"         \
+    | tr -d ' '     \
+    | tr '\n' ' '   \
+    | sed 's/ $//g'
+}
+
+function words2lines()
+{
+  echo "$1"         \
+    | tr ' ' '\n'   \
+    | tr -d ' '     \
+    | grep -vE '^$'
+}
+
+function get_tables_exclude()
+{
+  local OPTIONS
+
+OPTIONS="$(cat << EOF
+config
+jjwg_Maps
+relationships
+securitygroups
+user_preferences
+users
+EOF
+)"
+
+  lines2regex "$OPTIONS"
+}
+
+function get_prune_states()
+{
+  local OPTIONS
+
+OPTIONS="$(cat << EOF
+BEFORE_PRUNE
+DELETED
+DATE
+AUDIT
+CSTM
+ORPHAN
+PRUNE_TOTAL
+AFTER_PRUNE
+EOF
+)"
+
+  lines2words "$OPTIONS"
+}
+
+function regex2lines()
+{
+  echo "$1" | tr -d '()' | tr '|' '\n'
+}
+
+function defaults()
+{
+  declare -gA TOTAL_CHECK=([OK]=0 [ER]=0 [EX]=0 [EM]=0)
+  declare -gA TOTAL_NAMES=([OK]=OK [ER]=ERROR [EX]=EXCLUDE [EM]=EMPTY)
+}
+
+function params()
+{
+
+  [[ -n "$BIN"                  ]] || BIN="$(basename "$0")"
+  [[ -n "$LOG"                  ]] || LOG="$BIN.log"
+  [[ -n "$TMP_DIR"              ]] || TMP_DIR='/tmp'
+  [[ -n "$REGEX_COLUMN_EXCLUDE" ]] || REGEX_COLUMN_EXCLUDE='(created_by|modified_user_id)'
+  [[ -n "$REGEX_TABLES_EXCLUDE" ]] || REGEX_TABLES_EXCLUDE="$(get_tables_exclude)"
+  [[ -n "$DB_NAME"              ]] || DB_NAME='suitecrm'
+  [[ -n "$DB_HOST"              ]] || DB_HOST='localhost'
+  [[ -n "$DB_PORT"              ]] || DB_PORT='3306'
+  [[ -n "$DB_USER"              ]] || DB_USER='suitecrm'
+  [[ -n "$DB_PASS"              ]] || DB_PASS='suitecrm'
+  [[ -n "$TMP_PREFIX"           ]] || TMP_PREFIX="$TMP_DIR/$BIN-${DB_NAME/_/-}-$$"
+  [[ -n "$TABLES_LIKE"          ]] || TABLES_LIKE='%'
+  [[ -n "$BAK_DIR"              ]] || BAK_DIR="$PWD/.$BIN.bak"
+  [[ -d "$BAK_DIR"              ]] || mkdir -p "$BAK_DIR"
+  [[ -n "$DRY_RUN"              ]] || DRY_RUN=0
+  [[ -n "$DEBUG_SQL"            ]] || DEBUG_SQL=1
+  [[ -n "$RUN_DELETED"          ]] || RUN_DELETED=1
+  [[ -n "$RUN_ORPHAN"           ]] || RUN_ORPHAN=1
+  [[ -n "$RUN_AUDIT"            ]] || RUN_AUDIT=1
+  [[ -n "$RUN_CSTM"             ]] || RUN_CSTM=1
+  [[ -n "$RUN_DATE"             ]] || RUN_DATE=1
+  [[ -n "$RUN_DUMP"             ]] || RUN_DUMP=1
+  [[ -n "$BEFORE_DATE"          ]] || BEFORE_DATE="$(date +'%Y-%m-01')"
+  [[ -n "$ONLY_PRUNE"           ]] && only_prune "$ONLY_PRUNE"
+  [[ -n "$PRUNE_STATES"         ]] || PRUNE_STATES="$(get_prune_states)"
+  [[ -n "$STATES"               ]] || read -r -a STATES <<< "$(get_prune_states)"
+  [[ -n "$SHOW_SUMMARY"         ]] || SHOW_SUMMARY=1
+  [[ -n "$SHOW_LOG"             ]] || SHOW_LOG=0
+  [[ -n "$SHOW_ETA"             ]] || SHOW_ETA=1
+  [[    "$SHOW_LOG" -eq 1       ]] || SHOW_ETA=0
+  [[ -n "$CSTM_SUFFIX"          ]] || CSTM_SUFFIX='_cstm'
+  [[ -n "$AUDIT_SUFFIX"         ]] || AUDIT_SUFFIX='_audit'
+
+}
+
+function clean_val()
+{
+  echo "$1" | sed -r 's/(PASS|PASSWORD)=.*$/PASS=********/g'
+}
+
+bin_read ()
+{
+  local CFG KEY VAL
+  CFG=".${BIN}.cfg"
+
+  [[ -s "$CFG" ]] || return
+
+  while read -r LINE
+  do
+
+    KEY="${LINE%=*}"
+    VAL="${LINE#*=}"
+
+    export "$KEY=$VAL" || die "ERROR FAIL EXPORT $KEY"
+    log "READ $CFG SET $KEY=$(clean_val "${!KEY}")"
+
+  done < "$CFG"
+}
+
+function test_write()
+{
+
+  if ! touch "$BAK_DIR/$BIN.write" >/dev/null 2>/dev/null
+  then
+    MSG="FAIL WRITE PERMISSION IN $BAK_DIR"
+    die "$MSG"
+  fi
+
+  if ! touch "$LOG" >/dev/null 2>/dev/null
+  then
+    MSG="FAIL WRITE PERMISSION IN $LOG"
+    die "$MSG"
+  fi
+
+}
+
+function test_sql()
+{
+  sql "USE $DB_NAME;"
+}
+
+function dump_and_deleted()
+{
+  MSG="FOUND $TOT_DELETED DELETED RECORDS FROM $FROM_TABLE"
+  log "$MSG"
+  tot 'DELETED' "$FROM_TABLE" "$TOT_DELETED"
+
+  dump_deleted "$FROM_TABLE"
+
+  if [[ -s "$OUTFILE" ]]
+  then
+    log "DELETE $TOT_DELETED DELETED RECORDS FROM $FROM_TABLE"
+    dbg 'SQL_DELETED'
+
+    if [[ "$DRY_RUN" -eq 0 ]]
+    then
+      sql "$SQL_DELETED"
+    fi
+  fi
+}
+
+function dump_and_orphan()
+{
+  MSG="FOUND $TOT_ORPHAN ORPHAN RECORDS FROM $FROM_TABLE"
+  log "$MSG"
+
+  dump_orphan "$FROM_TABLE" "$COLUMN" "$FOREING_TABLE"
+
+  if [[ -s "$OUTFILE" ]]
+  then
+    log "DELETE $TOT_ORPHAN ORPHAN RECORDS FROM $FROM_TABLE"
+
+    if [[ "$DRY_RUN" -eq 0 ]]
+    then
+      sql "$SQL_ORPHAN"
+    fi
+  fi
+}
+
+function dump_and_cstm()
+{
+  MSG="FOUND $TOT_CSTM CSTM RECORDS FROM $FROM_CSTM"
+  log "$MSG"
+
+  dump_cstm "$FROM_TABLE"
+
+  if [[ -e "$OUTFILE" ]]
+  then
+    log "DELETE $TOT_CSTM CSTM RECORDS FROM $FROM_CSTM"
+
+    if [[ "$DRY_RUN" -eq 0 ]]
+    then
+      sql "$SQL_CSTM"
+    fi
+
+    [[ "$TOTAL_DUMP" -ne "$TOT_CSTM" ]] \
+      && log "ERROR TOTAL_DUMP != TOTAL_CSTM ($TOTAL_DUMP != $TOT_CSTM)"
+  fi
+
+  FROM_TABLE="${FROM_TABLE}${CSTM_SUFFIX}"
+}
+
+function dump_and_audit()
+{
+  MSG="FOUND $TOT_AUDIT AUDIT RECORDS FROM $FROM_AUDIT"
+  log "$MSG"
+
+  dump_audit "$FROM_TABLE"
+
+  if [[ -e "$OUTFILE" ]]
+  then
+    log "DELETE $TOT_AUDIT AUDIT RECORDS FROM $FROM_AUDIT"
+
+    if [[ "$DRY_RUN" -eq 0 ]]
+    then
+      sql "$SQL_AUDIT"
+    fi
+
+    [[ "$TOTAL_DUMP" -ne "$TOT_AUDIT" ]] \
+      && log "ERROR TOTAL_DUMP != TOTAL_AUDIT ($TOTAL_DUMP != $TOT_AUDIT)"
+  fi
+
+  FROM_TABLE="${FROM_TABLE}${AUDIT_SUFFIX}"
+}
+
+function dump_and_date()
+{
+  MSG="FOUND $TOT_DATE RECORDS BEFORE FROM $FROM_TABLE"
+  log "$MSG"
+  tot 'DATE' "$FROM_TABLE" "$TOT_DATE"
+
+  dump_date "$FROM_TABLE"
+
+  if [[ -s "$OUTFILE" ]]
+  then
+    log "DELETE $TOT_DATE DATE RECORDS FROM $FROM_TABLE"
+
+    if [[ "$DRY_RUN"   -eq 0 ]]
+    then
+      sql "$SQL_DATE"
+    fi
+
+    [[ "$TOTAL_DUMP" -ne "$TOT_DATE" ]] \
+      && log "ERROR TOTAL_DUMP != TOTAL_BEFORE ($TOTAL_DUMP != $TOT_DATE)"
+  fi
+}
+
+function sql_deleted()
+{
+  SQL_TOT_DELETED="SELECT COUNT(id) AS TOT_DELETED FROM $FROM_TABLE"
+  SQL_TOT_DELETED+=" WHERE deleted=1;"
+
+  SQL_DELETED="DELETE FROM $FROM_TABLE WHERE deleted=1;"
+
+  TOT_DELETED="$(sql "$SQL_TOT_DELETED")"
+}
+
+function sql_orphan()
+{
+  local ID
+
+  ID="$(get_table_id "$FROM_TABLE")"
+  SQL_TOT_ORPHAN="SELECT COUNT($ID) AS TOT_ORPHAN FROM $FROM_TABLE"
+  SQL_TOT_ORPHAN+=" WHERE $COLUMN NOT IN (SELECT id FROM $FOREING_TABLE)"
+  SQL_TOT_ORPHAN+=" AND $COLUMN IS NOT NULL;"
+
+  SQL_ORPHAN="DELETE FROM $FROM_TABLE"
+  SQL_ORPHAN+=" WHERE $COLUMN NOT IN (SELECT id FROM $FOREING_TABLE)"
+  SQL_ORPHAN+=" AND $COLUMN IS NOT NULL;"
+
+  TOT_ORPHAN="$(sql "$SQL_TOT_ORPHAN")"
+}
+
+function sql_cstm()
+{
+  local ID
+
+  FROM_CSTM="${FROM_TABLE}"
+  FROM_TABLE="${FROM_TABLE//$CSTM_SUFFIX/}"
+  ID="$(get_table_id "$FROM_CSTM")"
+  WHERE_CSTM="$ID NOT IN (SELECT id FROM $FROM_TABLE)"
+
+  SQL_TOT_CSTM="SELECT COUNT($ID) AS TOT_CSTM FROM $FROM_CSTM"
+  SQL_TOT_CSTM+=" WHERE $WHERE_CSTM;"
+
+  SQL_CSTM="DELETE FROM $FROM_CSTM"
+  SQL_CSTM+=" WHERE $WHERE_CSTM;"
+
+  TOT_CSTM="$(sql "$SQL_TOT_CSTM")"
+}
+
+function sql_audit()
+{
+  local ID
+
+  FROM_AUDIT="${FROM_TABLE}"
+  FROM_TABLE="${FROM_TABLE//$AUDIT_SUFFIX/}"
+  ID="$(get_table_id "$FROM_AUDIT")"
+  WHERE_AUDIT="$ID IN (SELECT id FROM $FROM_TABLE)"
+
+  SQL_TOT_AUDIT="SELECT COUNT($ID) AS TOT_AUDIT FROM $FROM_AUDIT"
+  SQL_TOT_AUDIT+=" WHERE $WHERE_AUDIT;"
+
+  SQL_AUDIT="DELETE FROM $FROM_AUDIT"
+  SQL_AUDIT+=" WHERE $WHERE_AUDIT;"
+
+  TOT_AUDIT="$(sql "$SQL_TOT_AUDIT")"
+}
+
+function sql_date()
+{
+  SQL_TOT_DATE="SELECT COUNT(id) AS TOT_DATE FROM $FROM_TABLE"
+
+  [[ "$FROM_TABLE" =~ .*$AUDIT_SUFFIX$ ]] && DATE_COLUMN='date_created'
+  SQL_TOT_DATE+=" WHERE $DATE_COLUMN < DATE('$BEFORE_DATE');"
+
+  SQL_DATE="DELETE FROM $FROM_TABLE"
+  SQL_DATE+=" WHERE $DATE_COLUMN < DATE('$BEFORE_DATE');"
+
+  TOT_DATE="$(sql "$SQL_TOT_DATE")"
+}
+
+function get_table_id()
+{
+  case "$1" in
+    *_cstm)   ID='id_c'       ;;
+    *_audit)  ID='parent_id'  ;;
+    *)        ID='id'         ;;
+  esac
+
+  echo "$ID"
+}
+
+function sql_total()
+{
+  local EXTRA ID
+
+  [[ -z "$1" ]] || EXTRA="$1"
+
+  ID="$(get_table_id "$FROM_TABLE")"
+  SQL_TOTAL="SELECT COUNT($ID) AS TOTAL FROM $FROM_TABLE;"
+  TOTAL="$(sql "$SQL_TOTAL")"
+  MSG="TOTAL $TOTAL RECORDS FOUND FROM $FROM_TABLE $EXTRA"
+  log "$MSG"
+}
+
+function prune_orphan()
+{
+  local ORPHAN_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  ORPHAN_TOTAL="$(wc -l "$OWN_KEYS")"
+  ORPHAN_TOTAL="${ORPHAN_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE COLUMN FOREING_TABLE
+  do
+
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'PRUNE ORPHAN  TABLE %*s/%*s' \
+                    "${#ORPHAN_TOTAL}" "$N"              \
+                    "${#ORPHAN_TOTAL}" "$ORPHAN_TOTAL"
+      bareta "$N" "$ORPHAN_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    [[ "$COLUMN"  =~ $REGEX_COLUMN_EXCLUDE ]] && continue
+
+    if ! column_exists "$FROM_TABLE" "$COLUMN"
+    then
+      log "PRUNE_ORPHAN NOT FOUND COLUMN $COLUMN IN TABLE $FROM_TABLE"
+      continue
+    fi
+
+    sql_total "BEFORE PRUNE $COLUMN"
+    sql_orphan
+    tot 'ORPHAN' "$FROM_TABLE" "$TOT_ORPHAN"
+
+    [[ "$TOT_ORPHAN" -gt 0 ]] && dump_and_orphan
+
+  done < "$OWN_KEYS"
+  printf '\n' 1>&2
+}
+
+function prune_deleted()
+{
+  local DELETED_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  DELETED_TOTAL="$(wc -l "$ALL_TABLES")"
+  DELETED_TOTAL="${DELETED_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE _
+  do
+
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'PRUNE DELETED TABLE %*s/%*s' \
+                    "${#DELETED_TOTAL}" "$N"              \
+                    "${#DELETED_TOTAL}" "$DELETED_TOTAL"
+      bareta "$N" "$DELETED_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    if [[ "$FROM_TABLE" =~ .*_(audit|cstm)$ ]]
+    then
+      # AUDIT AND CSTM TABLES DO NOT HAVE A DELETED COLUMN
+      continue
+    fi
+
+    sql_total "BEFORE PRUNE DELETED"
+    sql_deleted
+    [[ "$TOT_DELETED" -gt 0 ]] && dump_and_deleted
+
+  done < "$ALL_TABLES"
+  printf '\n' 1>&2
+}
+
+function tot_cstm()
+{
+  tot 'CSTM' "$FROM_CSTM" "$TOTAL"
+}
+
+function tot_audit()
+{
+  tot 'AUDIT' "$FROM_AUDIT" "$TOTAL"
+}
+
+function prune_cstm()
+{
+  local CSTM_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  CSTM_TOTAL="$(wc -l "$CSTM_TABLES")"
+  CSTM_TOTAL="${CSTM_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE _
+  do
+
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'PRUNE CSTM   TABLE %*s/%*s' \
+                    "${#CSTM_TOTAL}" "$N"              \
+                    "${#CSTM_TOTAL}" "$CSTM_TOTAL"
+      bareta "$N" "$CSTM_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    SQL="SHOW TABLES LIKE '%$CSTM_SUFFIX';"
+    sql_total "BEFORE PRUNE CSTM"
+    sql_cstm
+    tot_cstm
+
+    [[ "$TOT_CSTM"  -gt 0 ]] && dump_and_cstm
+
+  done < "$CSTM_TABLES"
+  printf '\n' 1>&2
+}
+
+function prune_audit()
+{
+  local AUDIT_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  AUDIT_TOTAL="$(wc -l "$AUDIT_TABLES")"
+  AUDIT_TOTAL="${AUDIT_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE _
+  do
+
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'PRUNE AUDIT   TABLE %*s/%*s'   \
+                    "${#AUDIT_TOTAL}" "$N"          \
+                    "${#AUDIT_TOTAL}" "$AUDIT_TOTAL"
+      bareta "$N" "$AUDIT_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    SQL="SHOW TABLES LIKE '%$AUDIT_SUFFIX';"
+    sql_total "BEFORE PRUNE AUDIT"
+    sql_audit
+    tot_audit
+
+    [[ "$TOT_AUDIT"  -gt 0 ]] && dump_and_audit
+
+  done < "$AUDIT_TABLES"
+  printf '\n' 1>&2
+}
+
+function prune_date()
+{
+  local DATE_TOTAL MSG N START
+
+  START="$(LC_ALL=c date +'%s')"
+  DATE_TOTAL="$(wc -l "$ALL_TABLES")"
+  DATE_TOTAL="${DATE_TOTAL%% *}"
+
+  N=0
+  while read -r FROM_TABLE _
+  do
+
+    if [[ "$SHOW_ETA" -eq 1 ]]
+    then
+      N="$((N + 1))"
+      printf -v MSG 'PRUNE DATE    TABLE %*s/%*s' \
+                    "${#DATE_TOTAL}" "$N"              \
+                    "${#DATE_TOTAL}" "$DATE_TOTAL"
+      bareta "$N" "$DATE_TOTAL" "$START" "$MSG" 1>&2
+    fi
+
+    DATE_COLUMN='date_entered'
+    if ! column_exists "$FROM_TABLE" "$DATE_COLUMN"
+    then
+      DATE_COLUMN='date_modified'
+    fi
+
+    sql_total "BEFORE PRUNE DATE $BEFORE_DATE"
+    sql_date
+
+    [[ "$TOT_DATE" -gt 0 ]] && dump_and_date
+
+  done < "$ALL_TABLES"
+  printf '\n' 1>&2
+}
+
+function prune_all()
+{
+  [[ "$RUN_DELETED"  -eq 1 ]] && prune_deleted
+  [[ "$RUN_DATE"     -eq 1 ]] && prune_date
+  [[ "$RUN_AUDIT"    -eq 1 ]] && prune_audit
+  [[ "$RUN_CSTM"     -eq 1 ]] && prune_cstm
+  [[ "$RUN_ORPHAN"   -eq 1 ]] && prune_orphan
+}
+
+function main()
+{
+
+  defaults
+  params "$@"
+  temporal
+  test_write
+  bin_read
+  test_sql
+  get_own_tables
+  get_cstm_tables
+  get_audit_tables
+  get_relationships
+  get_all_tables
+  get_before_total
+  prune_all
+  get_after_total
+  get_prune_total
+  sum_tbl
+  sum_tot
+  sum_end
+  clean
+
+}
+
+main "@"
