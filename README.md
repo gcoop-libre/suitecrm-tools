@@ -4,8 +4,6 @@ Useful tools for _SuiteCRM_
 
 ## Install
 
-### Manual
-
 Clone the repository:
 
 ```bash
@@ -27,7 +25,57 @@ fi
 
 ```
 
-# `suitecrm-prune`
+
+### `suitecrm-cfg-chk`
+
+Compare environment configuration between _PHP_ and _NG_.
+
+Usage:
+
+  ~~~bash
+
+  suitecrm-cfg-chk [CFG] [ENV]
+
+  ~~~
+
+### Example
+
+  ~~~bash
+
+  # suitecrm-cfg-chk
+
+  ## SUITECRM ENVIRONMENT CONFIGURATION
+
+  COMPARE /home/osiris/git/suitecrm8.x-conf-dev/public/legacy/config_override.php
+  WITH    /home/osiris/git/suitecrm8.x-conf-dev/.env
+
+    STATUS CONFIG              PHP VS NG
+  ----------------------------------------------------------------------------
+     MATCH DB_PORT            3306  = 3306
+  MISMATCH DB_USER             dev != tst
+     MATCH DB_HOST        sqldev01  = sqldev01
+     MATCH DB_NAME        suitecrm  = suitecrm
+  MISMATCH DB_PASS       D*******p != T*******g
+
+  # suitecrm-cfg-chk config_override.php .env.local
+
+  ## SUITECRM ENVIRONMENT CONFIGURATION
+
+  COMPARE /home/osiris/git/suitecrm8.x-conf-dev/public/legacy/config_override.php
+  WITH    /home/osiris/git/suitecrm8.x-conf-dev/.env.local
+
+    STATUS CONFIG              PHP VS NG
+  ----------------------------------------------------------------------------
+     MATCH DB_PORT            3306  = 3306
+     MATCH DB_USER             dev  = dev
+  MISMATCH DB_HOST       localhost != sqldev01
+     MATCH DB_NAME        suitecrm  = suitecrm
+  MISMATCH DB_PASS       D*******p != T*******g
+
+  ~~~
+
+
+### `suitecrm-prune`
 
 After testing on a test instance of _SuiteCRM_ `v8.5.1`, it is
 necessary to prune the custom module tables _gcoop_ and to simplify and
@@ -65,7 +113,7 @@ DELETE MORE RECORDS THAN EXPECTED!
 It is possible to define a regular expression of tables to be deleted in
 the `REGEX_TABLES_EXCLUDE` variable.
 
-## SUMMARY PRUNE DATABASE `suitecrm` ON `localhost` AT 2024-08-09 13:24:30 PID 1778628
+#### SUMMARY PRUNE DATABASE `suitecrm` ON `localhost` AT 2024-08-09 13:24:30 PID 1778628
 
 ```
 
