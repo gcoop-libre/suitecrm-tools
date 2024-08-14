@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+
+# This script comes with ABSOLUTELY NO WARRANTY, use at own risk
+# Copyright (C) 2024 Osiris Alejandro Gomez <osiux@osiux.com>
+# Copyright (C) 2024 Osiris Alejandro Gomez <osiris@gcoop.coop>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+# shellcheck disable=SC2034
+
+function usage()
+{
+cat << EOF
+
+## \`$BIN\` Compare environment configuration between PHP and NG
+
+Usage:
+
+  ~~~bash
+
+  $BIN [CFG] [ENV]
+
+  ~~~
+
+### Example
+
+  # $BIN
+
+  ## SUITECRM ENVIRONMENT CONFIGURATION
+
+  COMPARE /home/osiris/git/suitecrm8.x-conf-dev/public/legacy/config_override.php
+  WITH    /home/osiris/git/suitecrm8.x-conf-dev/.env
+
+    STATUS CONFIG              PHP VS NG
+  ----------------------------------------------------------------------------
+     MATCH DB_PORT            3306  = 3306
+  MISMATCH DB_USER             dev != tst
+     MATCH DB_HOST        sqldev01  = sqldev01
+     MATCH DB_NAME        suitecrm  = suitecrm
+  MISMATCH DB_PASS       D*******p != T*******g
+
+
+  # $BIN config_override.php .env.local
+
+  ## SUITECRM ENVIRONMENT CONFIGURATION
+
+  COMPARE /home/osiris/git/suitecrm8.x-conf-dev/public/legacy/config_override.php
+  WITH    /home/osiris/git/suitecrm8.x-conf-dev/.env.local
+
+    STATUS CONFIG              PHP VS NG
+  ----------------------------------------------------------------------------
+     MATCH DB_PORT            3306  = 3306
+     MATCH DB_USER             dev  = dev
+  MISMATCH DB_HOST       localhost != sqldev01
+     MATCH DB_NAME        suitecrm  = suitecrm
+  MISMATCH DB_PASS       D*******p != T*******g
+
+  ~~~
+
+EOF
+exit 0
+}
+
+function stderror()
+{
+  echo >&2 "$1"
+}
+
+function die()
+{
+  stderror "$1"
+  exit 1
+}
+
+function cfg_get_db_var()
+{
+  local VAR
+
+  VAR="${1,,}"
+  grep -E "dbconfig.*${VAR}" "$CFG"  | cut -d= -f2 | tr -d "'; "
+}
+
+function env_get_db_url()
+{
+  grep '^DATABASE_URL=' "$ENV" \
+    | cut -d '/' -f3-          \
+    | tr -d '"'                \
+    | tr ':@/' ' '
+}
+
+function normal()
+{
+  printf '%s%s' $'\033' '[22m'
+}
+
+function error()
+{
+  printf '%s%s' $'\033' '[31m'
+}
+
+function defaults()
+{
+  declare -gA CFG_DB_KEY=([DB_USER]=db_user_name [DB_PASS]=db_password [DB_HOST]=db_host_name [DB_PORT]=db_port [DB_NAME]=db_name)
+
+  readonly DB_USER=0
+  readonly DB_PASS=1
+  readonly DB_HOST=2
+  readonly DB_PORT=3
+  readonly DB_NAME=4
+
+  [[ -n "$BIN" ]] || BIN="$(basename "$0")"
+  [[ -n "$DIR" ]] || DIR="$PWD"
+  [[ -n "$ENV" ]] || ENV="$DIR/.env"
+  [[ -n "$CFG" ]] || CFG="$DIR/public/legacy/config_override.php"
+  [[ -n "$HLP" ]] || HLP='^[-]+(h|help)'
+}
+
+function params()
+{
+  [[ "$1" =~ $HLP   ]] && usage
+  [[     -z  "$1"   ]] || CFG="$DIR/public/legacy/$1"
+  [[     -z  "$2"   ]] || ENV="$DIR/$2"
+  [[     -s  "$ENV" ]] || die "NOT FOUND ENV FILE $ENV"
+  [[     -s  "$CFG" ]] || die "NOT FOUND CFG FILE $CFG"
+}
+
+function tbl_hdr()
+{
+  printf "\\n## SUITECRM ENVIRONTMENT CONFIGURATION\\n"
+  printf "\\nCOMPARE %s\\nWITH    %s\\n\\n" "$CFG" "$ENV"
+}
+
+function tbl_tit()
+{
+  printf "%8s %6s %40s %2s %-40s\\n" \
+         'STATUS'                    \
+         'CONFIG '                   \
+         'PHP'                       \
+         'VS'                        \
+         'NG'
+}
+
+function tbl_div()
+{
+  tbl_tit | sed 's/[^|]/-/g'
+}
+
+function hide_pass()
+{
+  local PASS_MAX PASS_MED PASS_PAD PASS_VAL
+
+  PASS_VAL="$1"
+  PASS_MAX="${#PASS_VAL}"
+  PASS_MED="$((PASS_MAX-2))"
+
+  printf -v PASS_PAD "%*s" "$PASS_MED" ' '
+  PASS_PAD="${PASS_PAD// /*}"
+
+  printf "%s%s%s"     \
+    "${PASS_VAL:0:1}" \
+    "$PASS_PAD"       \
+    "${PASS_VAL: -1}"
+}
+
+
+function tbl_row()
+{
+  ERRORS=0
+  DB_URL="$(env_get_db_url)"
+  read -r -a ENV_URL <<< "$DB_URL"
+
+  for CFG_VAR in "${!CFG_DB_KEY[@]}"
+  do
+
+    CFG_KEY="${CFG_DB_KEY[$CFG_VAR]}"
+    CFG_VAL="$(cfg_get_db_var "$CFG_KEY")"
+    ENV_VAL="${ENV_URL[${!CFG_VAR}]}"
+
+    if [[ "$CFG_VAL" = "$ENV_VAL" ]]
+    then
+      CFG_STS='MATCH'
+      CFG_SYM='='
+      normal
+    else
+      CFG_STS='MISMATCH'
+      CFG_SYM='!='
+      ERRORS="$((ERRORS + 1))"
+      error
+    fi
+
+    if [[ "$CFG_VAR" = 'DB_PASS' ]]
+    then
+      [[ -z "$CFG_VAL" ]] || CFG_VAL="$(hide_pass "$CFG_VAL")"
+      [[ -z "$ENV_VAL" ]] || ENV_VAL="$(hide_pass "$ENV_VAL")"
+    fi
+
+    printf "%8s %6s %40s %2s %-40s\\n" \
+           "$CFG_STS"                  \
+           "$CFG_VAR"                  \
+           "$CFG_VAL"                  \
+           "$CFG_SYM"                  \
+           "$ENV_VAL"
+
+  done
+}
+
+function main()
+{
+  defaults
+  params "$@"
+  tbl_hdr
+  tbl_tit
+  tbl_div
+  tbl_row
+  [[ "$ERRORS" -ne 0 ]] && exit "$ERRORS"
+}
+
+main "$@"
