@@ -136,6 +136,10 @@ function params()
   [[     -z  "$ENV" ]] && ENV="$DIR/$2"
   [[     -s  "$CFG" ]] || die "NOT FOUND CFG FILE $CFG"
   [[     -s  "$ENV" ]] || die "NOT FOUND ENV FILE $ENV"
+  CFG_TYPE="$(file -b --mime-type "$CFG")"
+  ENV_TYPE="$(file -b --mime-type "$ENV")"
+  [[ "$CFG_TYPE" = 'text/x-php' ]] || die "INVALID CFG FILE $CFG"
+  [[ "$ENV_TYPE" = 'text/plain' ]] || die "INVALID ENV FILE $ENV"
 }
 
 function tbl_hdr()
