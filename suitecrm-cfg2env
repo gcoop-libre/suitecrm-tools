@@ -23,7 +23,7 @@ function usage()
 {
 cat << EOF
 
-## \`$BIN\` Compare environment configuration between PHP and NG
+## \`$BIN\` Overwrite environment database credentials in ENV with values from CFG
 
 Usage:
 
@@ -35,7 +35,9 @@ Usage:
 
 ### Example
 
-  # $BIN
+  ~~~bash
+
+  $BIN
 
   ## SUITECRM ENVIRONMENT CONFIGURATION
 
@@ -45,26 +47,10 @@ Usage:
     STATUS CONFIG              PHP VS NG
   ----------------------------------------------------------------------------
      MATCH DB_PORT            3306  = 3306
-  MISMATCH DB_USER             dev != tst
+     MATCH DB_USER             dev  = dev
      MATCH DB_HOST        sqldev01  = sqldev01
      MATCH DB_NAME        suitecrm  = suitecrm
-  MISMATCH DB_PASS       D*******p != T*******g
-
-
-  # $BIN config_override.php .env.local
-
-  ## SUITECRM ENVIRONMENT CONFIGURATION
-
-  COMPARE /home/osiris/git/suitecrm8.x-conf-dev/public/legacy/config_override.php
-  WITH    /home/osiris/git/suitecrm8.x-conf-dev/.env.local
-
-    STATUS CONFIG              PHP VS NG
-  ----------------------------------------------------------------------------
-     MATCH DB_PORT            3306  = 3306
-     MATCH DB_USER             dev  = dev
-  MISMATCH DB_HOST       localhost != sqldev01
-     MATCH DB_NAME        suitecrm  = suitecrm
-  MISMATCH DB_PASS       D*******p != T*******g
+     MATCH DB_PASS       D*******p  = D*******p
 
   ~~~
 
@@ -91,12 +77,21 @@ function cfg_get_db_var()
   grep -E "dbconfig.*${VAR}" "$CFG"  | cut -d= -f2 | tr -d "'; "
 }
 
+function env_gen_db_url()
+{
+  printf "DATABASE_URL='mysql://%s:%s@%s:%s/%s'" \
+         "${ENV_URL[$DB_USER]}"                  \
+         "${ENV_URL[$DB_PASS]}"                  \
+         "${ENV_URL[$DB_HOST]}"                  \
+         "${ENV_URL[$DB_PORT]}"                  \
+         "${ENV_URL[$DB_NAME]}"
+}
+
 function env_get_db_url()
 {
   grep '^DATABASE_URL=' "$ENV" \
     | cut -d '/' -f3-          \
     | tr -d '"'                \
-    | tr -d "'"                \
     | tr ':@/' ' '
 }
 
@@ -135,11 +130,17 @@ function params()
   [[     -e  "$2"   ]] && ENV="$2"
   [[     -z  "$ENV" ]] && ENV="$DIR/$2"
   [[     -s  "$CFG" ]] || die "NOT FOUND CFG FILE $CFG"
-  [[     -s  "$ENV" ]] || die "NOT FOUND ENV FILE $ENV"
+  [[     -e  "$ENV" ]] || die "NOT FOUND ENV FILE $ENV"
+
   CFG_TYPE="$(file -b --mime-type "$CFG")"
   ENV_TYPE="$(file -b --mime-type "$ENV")"
+
   [[ "$CFG_TYPE" = 'text/x-php' ]] || die "INVALID CFG FILE $CFG"
-  [[ "$ENV_TYPE" = 'text/plain' ]] || die "INVALID ENV FILE $ENV"
+
+  if [[ "$ENV_TYPE" != 'inode/x-empty' ]]
+  then
+    [[ "$ENV_TYPE" = 'text/plain' ]] || die "INVALID ENV FILE $ENV"
+  fi
 }
 
 function tbl_hdr()
@@ -181,56 +182,38 @@ function hide_pass()
 }
 
 
-function tbl_row()
+function cfg2env()
 {
-  ERRORS=0
-  DB_URL="$(env_get_db_url)"
-  read -r -a ENV_URL <<< "$DB_URL"
+  declare -gA ENV_URL
 
   for CFG_VAR in "${!CFG_DB_KEY[@]}"
   do
-
     CFG_KEY="${CFG_DB_KEY[$CFG_VAR]}"
     CFG_VAL="$(cfg_get_db_var "$CFG_KEY")"
-    ENV_VAL="${ENV_URL[${!CFG_VAR}]}"
-
-    if [[ "$CFG_VAL" = "$ENV_VAL" ]]
-    then
-      CFG_STS='MATCH'
-      CFG_SYM='='
-      normal
-    else
-      CFG_STS='MISMATCH'
-      CFG_SYM='!='
-      ERRORS="$((ERRORS + 1))"
-      error
-    fi
-
-    if [[ "$CFG_VAR" = 'DB_PASS' ]]
-    then
-      [[ -z "$CFG_VAL" ]] || CFG_VAL="$(hide_pass "$CFG_VAL")"
-      [[ -z "$ENV_VAL" ]] || ENV_VAL="$(hide_pass "$ENV_VAL")"
-    fi
-
-    printf "%8s %6s %40s %2s %-40s\\n" \
-           "$CFG_STS"                  \
-           "$CFG_VAR"                  \
-           "$CFG_VAL"                  \
-           "$CFG_SYM"                  \
-           "$ENV_VAL"
-
+    ENV_URL[${!CFG_VAR}]="$CFG_VAL"
   done
+
+  DATABASE_URL="$(env_gen_db_url)"
+
+  if grep -q '^DATABASE_URL=.*' "$ENV" 2>/dev/null
+  then
+    DATABASE_URL="${DATABASE_URL//\//\\/}"
+    sed -i "s/^DATABASE_URL.*/$DATABASE_URL/g" "$ENV"
+  else
+    echo "$DATABASE_URL" >> "$ENV"
+  fi
 }
 
 function main()
 {
   defaults
   params "$@"
-  tbl_hdr
-  tbl_tit
-  tbl_div
-  tbl_row
-  [[ "$ERRORS" -ne 0 ]] && exit "$ERRORS"
+  cfg2env
+
+  if command -v suitecrm-cfg-chk >/dev/null
+  then
+    suitecrm-cfg-chk "$CFG" "$ENV"
+  fi
 }
 
 main "$@"

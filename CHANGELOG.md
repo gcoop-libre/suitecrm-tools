@@ -2,8 +2,23 @@
 
  - this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [`Unreleased - 2024-08-10`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.1.1...develop)
+## [`Unreleased - 2024-08-14`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.2.0...develop)
 
+
+## [`v0.2.0 - 2024-08-14`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.1.1...v0.2.0) _add suitecrm-cfg-chk to compare environment configuration between PHP (config_override.php) and NG (.env)_
+
+
+### `CHANGELOG`
+
+- update Unreleased, add v0.1.0, v0.1.1,
+
+### `README`
+
+- add section suitecrm-cfg-chk and improve heading levels
+
+### `suitecrm-cfg-chk`
+
+- add script to compare environment configuration between PHP and NG
 
 ## [`v0.1.1 - 2024-08-10`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.1.0...v0.1.1) _minor fix in README, translate WARNING PERFORM BACKUP PRIOR TO EXECUTE suitecrm-prune_
 
