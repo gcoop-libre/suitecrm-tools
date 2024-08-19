@@ -130,10 +130,12 @@ function defaults()
 function params()
 {
   [[ "$1" =~ $HLP   ]] && usage
-  [[     -z  "$1"   ]] || CFG="$DIR/public/legacy/$1"
-  [[     -z  "$2"   ]] || ENV="$DIR/$2"
-  [[     -s  "$ENV" ]] || die "NOT FOUND ENV FILE $ENV"
+  [[     -e  "$1"   ]] && CFG="$1"
+  [[     -z  "$CFG" ]] && CFG="$DIR/public/legacy/$1"
+  [[     -e  "$2"   ]] && ENV="$2"
+  [[     -z  "$ENV" ]] && ENV="$DIR/$2"
   [[     -s  "$CFG" ]] || die "NOT FOUND CFG FILE $CFG"
+  [[     -s  "$ENV" ]] || die "NOT FOUND ENV FILE $ENV"
 }
 
 function tbl_hdr()
