@@ -96,6 +96,7 @@ function env_get_db_url()
   grep '^DATABASE_URL=' "$ENV" \
     | cut -d '/' -f3-          \
     | tr -d '"'                \
+    | tr -d "'"                \
     | tr ':@/' ' '
 }
 
