@@ -75,6 +75,39 @@ Usage:
   ~~~
 
 
+### `suitecrm-cfg2env`
+
+Overwrite environment database credentials in ENV with values from CFG
+
+Usage:
+
+  ~~~bash
+
+  suitecrm-cfg2env [CFG] [ENV]
+
+  ~~~
+
+### Example
+
+  ~~~bash
+
+  suitecrm-cfg2env
+
+  ## SUITECRM ENVIRONMENT CONFIGURATION
+
+  COMPARE /home/osiris/git/suitecrm8.x-conf-dev/public/legacy/config_override.php
+  WITH    /home/osiris/git/suitecrm8.x-conf-dev/.env
+
+    STATUS CONFIG              PHP VS NG
+  ----------------------------------------------------------------------------
+     MATCH DB_PORT            3306  = 3306
+     MATCH DB_USER             dev  = dev
+     MATCH DB_HOST        sqldev01  = sqldev01
+     MATCH DB_NAME        suitecrm  = suitecrm
+     MATCH DB_PASS       D*******p  = D*******p
+
+  ~~~
+
 ### `suitecrm-prune`
 
 After testing on a test instance of _SuiteCRM_ `v8.5.1`, it is
