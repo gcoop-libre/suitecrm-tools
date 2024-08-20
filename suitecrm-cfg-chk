@@ -100,14 +100,24 @@ function env_get_db_url()
     | tr ':@/' ' '
 }
 
-function normal()
+function match()
 {
-  printf '%s%s' $'\033' '[22m'
+  printf '%s%s' $'\033' '[32m'
 }
 
-function error()
+function mismatch()
 {
   printf '%s%s' $'\033' '[31m'
+}
+
+function header()
+{
+  printf "\n\033[38:5:208m%s\033[m\n" "## $1"
+}
+
+function files()
+{
+  printf "\\nCOMPARE %s\\nWITH    %s\\n\\n" "$1" "$2"
 }
 
 function defaults()
@@ -144,8 +154,8 @@ function params()
 
 function tbl_hdr()
 {
-  printf "\\n## SUITECRM ENVIRONTMENT CONFIGURATION\\n"
-  printf "\\nCOMPARE %s\\nWITH    %s\\n\\n" "$CFG" "$ENV"
+  header "SUITECRM ENVIRONTMENT CONFIGURATION"
+  files  "$CFG" "$ENV"
 }
 
 function tbl_tit()
@@ -198,12 +208,12 @@ function tbl_row()
     then
       CFG_STS='MATCH'
       CFG_SYM='='
-      normal
+      match
     else
       CFG_STS='MISMATCH'
       CFG_SYM='!='
       ERRORS="$((ERRORS + 1))"
-      error
+      mismatch
     fi
 
     if [[ "$CFG_VAR" = 'DB_PASS' ]]

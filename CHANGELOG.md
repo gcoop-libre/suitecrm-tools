@@ -2,8 +2,26 @@
 
  - this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [`Unreleased - 2024-08-14`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.2.0...develop)
+## [`Unreleased - 2024-08-19`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.3.0...develop)
 
+
+## [`v0.3.0 - 2024-08-19`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.2.0...v0.3.0) _add suitecrm-cfg2env to overwrite environment database credentials in NG (.env) with values from PHP (config_override.php)_
+
+- suitecrm-cfg2env: overwrite environment database credentials in ENV with values from CFG
+
+### `CHANGELOG`
+
+- update Unreleased and add v0.2.0
+
+### `README`
+
+- add suitecrm-cfg2env section with execution example
+
+### `suitecrm-cfg-chk`
+
+- validate mimetype of CFG as text/x-php and ENV as text/plain
+- improve params to allow full and relative path of CFG and ENV
+- remove simple quote from DATABASE_URL in env_get_db_url function
 
 ## [`v0.2.0 - 2024-08-14`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.1.1...v0.2.0) _add suitecrm-cfg-chk to compare environment configuration between PHP (config_override.php) and NG (.env)_
 
