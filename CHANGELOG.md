@@ -2,8 +2,19 @@
 
  - this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [`Unreleased - 2024-08-19`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.3.0...develop)
+## [`Unreleased - 2024-08-20`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.3.1...develop)
 
+
+## [`v0.3.1 - 2024-08-20`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.3.0...v0.3.1) _add better color support in suitecrm-cfg-chk, use green when match and red with mismatch configuration_
+
+
+### `CHANGELOG`
+
+- update Unreleased, add v0.3.0
+
+### `suitecrm-cfg-chk`
+
+- better color support, rename functions normal to match, error to mismatch, add header and files functions
 
 ## [`v0.3.0 - 2024-08-19`](https://gitlab.com/gcoop-libre/suitecrm-tools/-/compare/v0.2.0...v0.3.0) _add suitecrm-cfg2env to overwrite environment database credentials in NG (.env) with values from PHP (config_override.php)_
 
