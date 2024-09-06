@@ -2,6 +2,17 @@
 
 Useful tools for _SuiteCRM_
 
+| _date_     | _tag_      | _description_                                                                                                              |
+|------------|------------|----------------------------------------------------------------------------------------------------------------------------|
+| 2024-08-20 | `  v0.3.1` | add better color support in suitecrm-cfg-chk, use green when match and red with mismatch configuration                     |
+| 2024-08-19 | `  v0.3.0` | add suitecrm-cfg2env to overwrite environment database credentials in NG (.env) with values from PHP (config_override.php) |
+| 2024-08-14 | `  v0.2.0` | add suitecrm-cfg-chk to compare environment configuration between PHP (config_override.php) and NG (.env)                  |
+| 2024-08-10 | `  v0.1.1` | minor fix in README, translate WARNING PERFORM BACKUP PRIOR TO EXECUTE suitecrm-prune                                      |
+| 2024-08-10 | `  v0.1.0` | first public version to prune logically deleted records, before a date, from _audit and _cstm tables and orphaned records  |
+
+
+See details of changes in [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Install
 
 Clone the repository:
